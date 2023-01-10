@@ -78,6 +78,7 @@ device_1 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def make_response(prompts, prefix_sentences, args):
+    openai.api_key = args.api
     with torch.no_grad():
         sentences = []
         # output_sentences = [tokenizer.encode(x, add_prefix_space=True) for x in output_sentences_string]

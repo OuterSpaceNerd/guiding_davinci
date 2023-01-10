@@ -149,7 +149,7 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
     mask = mask.to(device_0)
 
     if args.dependence is True:
-        prev_input, past = model_train(inputs_id, past_key_values=None, attention_mask=mask, position_ids=position_ids)
+        prev_input, past = model_train(inputs_id, past_key_values=None, attention_mask=mask, position_ids=position_ids, return_dict=False)
     else:
         past = None
     
@@ -178,7 +178,7 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
     
     for i in range(40):
         prev_input = prev_input.to(device_0)
-        logits, past = model_train(prev_input, past_key_values=past, attention_mask=mask, position_ids=position_ids)
+        logits, past = model_train(prev_input, past_key_values=past, attention_mask=mask, position_ids=position_ids, return_dict=False)
         prev_input = prev_input.to(device_1)
         position_ids = position_ids.to(device_1)
 

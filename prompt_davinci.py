@@ -19,7 +19,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from torch.nn.utils.rnn import pad_sequence
-from chat_load import post_set
+# from chat_load import post_set
 from optim import Adam
 from dataset import ChineseDataset
 

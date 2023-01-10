@@ -241,10 +241,14 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
         first_input[j] = first_input[j][-l:]
         np.append(first_input[j], [sep], axis=-1)
     inter_response = []
+    print(decode_temp_sentence)
+    print(first_input)
 
 
     if 'gpt' in args.inter:
         inter_response.extend(make_response(decode_temp_sentence, first_input, args))
+
+    print(inter_response)
     # if 'google' in args.inter:
     #     #k = []
     #     for j in range(inputs_id.shape[0]):
@@ -305,6 +309,8 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
 #         loss -= coherence_reward[j] * args.ra
         
     # test_reward = np.mean(test_reward)
+
+    raise
     return loss, sum(temp_score)
 
 

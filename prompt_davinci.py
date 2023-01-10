@@ -80,23 +80,45 @@ device_1 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 def make_response(prompts, prefix_sentences, args):
     openai.api_key = args.api
     with torch.no_grad():
+      sentences = []
+      # output_sentences = [tokenizer.encode(x, add_prefix_space=True) for x in output_sentences_string]
+      # prompt = [tokenizer.encode(x, add_prefix_space=True) for x in first_input_string]
+      for i in range(len(prompts)):
+          
+          #total_string  = "There is office in the following response:" + output_sentences_string[i]
+          # total_string  = "Make the following response full of office:" + output_sentences_string[i]
+          # total_string = prompts[i] + prefix_sentences[i]
+          # sentences.append(f"{total_string}\n\n")
+          sentences.append(f"{prompts[i]}\n\nHuman: {prefix_sentences[i]}\nAI:")
+      reply_string = []
+
+      response = openai.Completion.create(
+              engine="text-davinci-003",
+              prompt=sentences,
+              temperature=0.9,
+              max_tokens=150,
+              top_p=1,
+              frequency_penalty=0,
+              presence_penalty=0.6,
+              stop=[" Human:", " AI:"]
+              )
+      for i in range(len(sentences)):
+          reply_string.append(response['choices'][i]['text'])
+      
+      for i in range(len(reply_string)):
+          reply_string[i] = reply_string[i].strip()
+
+      if args.setting == 2:
         sentences = []
-        # output_sentences = [tokenizer.encode(x, add_prefix_space=True) for x in output_sentences_string]
-        # prompt = [tokenizer.encode(x, add_prefix_space=True) for x in first_input_string]
         for i in range(len(prompts)):
-            
-            #total_string  = "There is office in the following response:" + output_sentences_string[i]
-            # total_string  = "Make the following response full of office:" + output_sentences_string[i]
-            # total_string = prompts[i] + prefix_sentences[i]
-            # sentences.append(f"{total_string}\n\n")
-            sentences.append(f"{prompts[i]}\n\nHuman: {prefix_sentences[i]}")
+            sentences.append(f"Human: {prefix_sentences[i]}\nAI: {reply_string[i]}")
         reply_string = []
 
         response = openai.Completion.create(
                 engine="text-davinci-003",
                 prompt=sentences,
-                temperature=0,
-                max_tokens=40,
+                temperature=0.9,
+                max_tokens=150,
                 top_p=1,
                 frequency_penalty=0,
                 presence_penalty=0.6,
@@ -104,30 +126,9 @@ def make_response(prompts, prefix_sentences, args):
                 )
         for i in range(len(sentences)):
             reply_string.append(response['choices'][i]['text'])
-        
+
         for i in range(len(reply_string)):
-            reply_string[i] = [reply_string[i].strip()]
-
-        if args.setting == 2:
-            sentences = []
-            for i in range(len(prompts)):
-                sentences.append(f"Human: {prefix_sentences[i]}\nAI: {reply_string[i]}")
-            reply_string = []
-            response = openai.Completion.create(
-                    engine="text-davinci-003",
-                    prompt=sentences,
-                    temperature=0,
-                    max_tokens=40,
-                    top_p=1,
-                    frequency_penalty=0,
-                    presence_penalty=0.6,
-                    stop=[" Human:", " AI:"]
-                    )
-            for i in range(len(sentences)):
-                reply_string.append(response['choices'][i]['text'])
-
-            for i in range(len(reply_string)):
-                reply_string[i] = [reply_string[i].strip()]
+            reply_string[i] = reply_string[i].strip()
     return reply_string
             
 
@@ -233,22 +234,20 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
                 flag = 0
                 temp_sentence[j].append(prev_input[j].item())
         if flag == 1: break
-    decode_temp_sentence = [tokenizer.decode(x).replace(' ', '') for x in temp_sentence]
+    decode_temp_sentence = tokenizer.batch_decode(temp_sentence, skip_special_tokens=True)
+    # decode_temp_sentence = [i.replace("[UNK]", "") for i in decode_temp_sentence]
     
     first_input = list(inputs_id.cpu().detach().numpy())
-    for j in range(inputs_id.shape[0]):
-        l = ll[j]
-        first_input[j] = first_input[j][-l:]
-        np.append(first_input[j], [sep], axis=-1)
+    # for j in range(inputs_id.shape[0]):
+    #     l = ll[j]
+    #     first_input[j] = first_input[j][-l:]
+    #     np.append(first_input[j], [sep], axis=-1)
     inter_response = []
-    print(decode_temp_sentence)
-    print(first_input)
-
+    first_input = tokenizer.batch_decode(first_input, skip_special_tokens=True)
 
     if 'gpt' in args.inter:
         inter_response.extend(make_response(decode_temp_sentence, first_input, args))
 
-    print(inter_response)
     # if 'google' in args.inter:
     #     #k = []
     #     for j in range(inputs_id.shape[0]):
@@ -310,7 +309,6 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
         
     # test_reward = np.mean(test_reward)
 
-    raise
     return loss, sum(temp_score)
 
 
@@ -380,7 +378,7 @@ def main():
 
     
     print("processing dataset...")
-    dataset = ChineseDataset(args.data_path, tokenizer, maxline=400000)
+    dataset = ChineseDataset(args.data_path, tokenizer, maxline=40)
     train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
 #     val_dataset = ChineseDataset(args.val_data_path, tokenizer)
 #     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=2)

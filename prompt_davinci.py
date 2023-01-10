@@ -6,6 +6,7 @@ from os.path import join
 import re
 from argparse import ArgumentParser
 import wandb
+import openai
 
 from transformers import (
   BertTokenizerFast,
@@ -76,73 +77,60 @@ device_0 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device_1 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def make_response(model, sentences, tokenizer, first_input):
+def make_response(prompts, prefix_sentences, args):
     with torch.no_grad():
-        
-        sep = tokenizer.sep_token_id # 102
-        sentences = [tokenizer.encode(x) for x in sentences]
-        t = []
-        for i in range(len(sentences)):
-            t_0 = [0 for i in range(len(list(first_input[i])))]
-            t_1 = [1 for i in range(len(list(sentences[i]))-1)]
-            sentences[i] = list(first_input[i]) + list(sentences[i])
-
-            t.append(t_0[:] + t_1[:])
-        mask= []
-
-
-        sentences = [x[:-1] for x in sentences]
-        for i in range(len(sentences)):
-            mask.append([1 for x in range(len(sentences[i]))])
-        
-
-        prev_input = torch.LongTensor(tf.keras.preprocessing.sequence.pad_sequences([torch.LongTensor(x) for x in sentences], value=0)).to(device_1)
-        mask = torch.LongTensor(tf.keras.preprocessing.sequence.pad_sequences([torch.LongTensor(x) for x in mask], value=0)).to(device_1)
-        
-        position_ids = mask.long().cumsum(-1) - 1 #+ prev_input.shape[1]
-        position_ids.masked_fill_(mask == 0, 1)
-        position_ids = position_ids.to(device_1)
-        
-        _, past = model(prev_input, past_key_values=None, attention_mask=mask, position_ids=position_ids)
-        prev_input = torch.LongTensor([[sep]] * len(sentences)).to(device_0) # (8, 1)
-        temp_sentence = [[] for i in range(len(sentences))]
-        
-        append = torch.Tensor([[1] for i in range(len(sentences))]).to(device_1)
-        mask = torch.cat((mask, append), 1)
-        
-        position_ids = mask.long().cumsum(-1) - 1 #+ prev_input.shape[1]
-        position_ids.masked_fill_(mask == 0, 1)
-        position_ids = position_ids[:, -1].unsqueeze(-1)
-        position_ids = position_ids.to(device_1)
-
-        for i in range(128):
-            prev_input, past = model(prev_input, past_key_values=past, attention_mask=mask, position_ids=position_ids)
-
-            mask = torch.cat((mask, append), 1)
+        sentences = []
+        # output_sentences = [tokenizer.encode(x, add_prefix_space=True) for x in output_sentences_string]
+        # prompt = [tokenizer.encode(x, add_prefix_space=True) for x in first_input_string]
+        for i in range(len(prompts)):
             
-            position_ids = mask.long().cumsum(-1) - 1 #+ prev_input.shape[1]
-            position_ids.masked_fill_(mask == 0, 1)
-            position_ids = position_ids[:, -1].unsqueeze(-1)
+            #total_string  = "There is office in the following response:" + output_sentences_string[i]
+            # total_string  = "Make the following response full of office:" + output_sentences_string[i]
+            # total_string = prompts[i] + prefix_sentences[i]
+            # sentences.append(f"{total_string}\n\n")
+            sentences.append(f"{prompts[i]}\n\nHuman: {prefix_sentences[i]}")
+        reply_string = []
 
-            prev_input = prev_input.squeeze(0).squeeze(1)
-            prev_input = prev_input / 0.7
-            prev_input = torch.softmax(prev_input, dim=-1)
+        response = openai.Completion.create(
+                engine="text-davinci-003",
+                prompt=sentences,
+                temperature=0,
+                max_tokens=40,
+                top_p=1,
+                frequency_penalty=0,
+                presence_penalty=0.6,
+                stop=[" Human:", " AI:"]
+                )
+        for i in range(len(sentences)):
+            reply_string.append(response['choices'][i]['text'])
+        
+        for i in range(len(reply_string)):
+            reply_string[i] = [reply_string[i].strip()]
 
-            prev_input = torch.multinomial(prev_input, num_samples=1)
-#             prev_input = torch.argmax(prev_input, dim=-1).unsqueeze(-1)
+        if args.setting == 2:
+            sentences = []
+            for i in range(len(prompts)):
+                sentences.append(f"Human: {prefix_sentences[i]}\nAI: {reply_string[i]}")
+            reply_string = []
+            response = openai.Completion.create(
+                    engine="text-davinci-003",
+                    prompt=sentences,
+                    temperature=0,
+                    max_tokens=40,
+                    top_p=1,
+                    frequency_penalty=0,
+                    presence_penalty=0.6,
+                    stop=[" Human:", " AI:"]
+                    )
+            for i in range(len(sentences)):
+                reply_string.append(response['choices'][i]['text'])
 
-            if i == 0:
-                for j in range(len(sentences)):
-                    temp_sentence[j].append(prev_input[j].item())
-                continue
-            flag = 1
+            for i in range(len(reply_string)):
+                reply_string[i] = [reply_string[i].strip()]
+    return reply_string
             
-            for j in range(len(sentences)):
-                if temp_sentence[j][-1] != sep: 
-                    flag = 0
-                    temp_sentence[j].append(prev_input[j].item())
-            if flag == 1: break
-    return [[tokenizer.decode(x).replace('[SEP]', '').replace('[CLS]', '').replace(' ', '')] for x in temp_sentence]
+
+        
 
 eps = 0.0000000001
 
@@ -159,11 +147,15 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
     position_ids = position_ids.to(device_0)
     
     mask = mask.to(device_0)
+
+    if args.dependence is True:
+        prev_input, past = model_train(inputs_id, past_key_values=None, attention_mask=mask, position_ids=position_ids)
+    else:
+        past = None
     
-    prev_input, past = model_train(inputs_id, past_key_values=None, attention_mask=mask, position_ids=position_ids)
-    inputs_id = inputs_id.to(device_1)
-    position_ids = position_ids.to(device_1)
-    mask = mask.to(device_1)
+    # inputs_id = inputs_id.to(device_1)
+    # position_ids = position_ids.to(device_1)
+    # mask = mask.to(device_1)
     # with torch.no_grad():
     #     prev_input, past_bot = model_2(inputs_id, past_key_values=None, attention_mask=mask, position_ids=position_ids)
     prev_input = torch.LongTensor([[sep]] * inputs_id.shape[0]).to(device_0) # (8, 1)
@@ -251,7 +243,7 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
 
 
     if 'gpt' in args.inter:
-        inter_response.extend(make_response(model_bot, decode_temp_sentence, tokenizer, first_input))
+        inter_response.extend(make_response(decode_temp_sentence, first_input, args))
     # if 'google' in args.inter:
     #     #k = []
     #     for j in range(inputs_id.shape[0]):
@@ -307,7 +299,7 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
 
     for j in range(inputs_id.shape[0]):
         loss += (score[j]) * emotion_loss[j] #/ len(temp_sentence[j])
-        loss += coherence_loss[j] * args.ra #/ len(temp_sentence[j])
+        # loss += coherence_loss[j] * args.ra #/ len(temp_sentence[j])
 #         loss += test_reward[j] * emotion_loss[j] * args.ra
 #         loss -= coherence_reward[j] * args.ra
         

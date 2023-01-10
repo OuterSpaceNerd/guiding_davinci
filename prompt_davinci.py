@@ -293,10 +293,10 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
     score = np.array(temp_score) / len(args.inter)
     score = score - np.mean(score)
 
-    test_len = [len(s) for s in temp_sentence]
-    test_reward = [test_reward[i] ** (1/test_len[i]) for i in range(inputs_id.shape[0])]
+    # test_len = [len(s) for s in temp_sentence]
+    # test_reward = [test_reward[i] ** (1/test_len[i]) for i in range(inputs_id.shape[0])]
     
-    coherence_reward = [coherence_reward[i] ** (1/test_len[i]) for i in range(inputs_id.shape[0])]
+    # coherence_reward = [coherence_reward[i] ** (1/test_len[i]) for i in range(inputs_id.shape[0])]
 
     for j in range(inputs_id.shape[0]):
         loss += (score[j]) * emotion_loss[j] #/ len(temp_sentence[j])
@@ -304,8 +304,8 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
 #         loss += test_reward[j] * emotion_loss[j] * args.ra
 #         loss -= coherence_reward[j] * args.ra
         
-    test_reward = np.mean(test_reward)
-    return loss, sum(temp_score), test_reward
+    # test_reward = np.mean(test_reward)
+    return loss, sum(temp_score)
 
 
 # -
@@ -391,22 +391,22 @@ def main():
             
             loss = 0
             for _ in range(args.sample_per_batch):
-                batch_loss, score, avg_prob = train(model_train, first_input, first_mask, tokenizer, ll, args, batch_size)
+                batch_loss, score = train(model_train, first_input, first_mask, tokenizer, ll, args, batch_size)
                 loss += batch_loss
 
-                test_score += avg_prob
+                # test_score += avg_prob
                 temp_score += score
             loss.backward()
             
             if batch % 20 == 0:
                 writer.add_scalar('reward', temp_score/batch_size/20, batch)
                 wandb.log({"reward": temp_score/batch_size/20}, batch)
-                writer.add_scalar('test_reward', test_score/20, batch)
-                wandb.log({"test_reward": test_score/20}, batch)
+                # writer.add_scalar('test_reward', test_score/20, batch)
+                # wandb.log({"test_reward": test_score/20}, batch)
                 writer.add_scalar('loss', loss, batch)
                 wandb.log({"loss": loss}, batch)
-                print("Reward:%.2f,    test:%.6f   "%(temp_score/batch_size/20, test_score/20))
-                test_score = 0
+                print("Reward:%.2f,    test:%.6f   "%(temp_score/batch_size/20))
+                # test_score = 0
                 temp_score = 0
             if batch % 4 == 0:
 #                 loss.backward()

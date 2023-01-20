@@ -136,9 +136,9 @@ def make_response(prompts, prefix_sentences, args):
 
 eps = 0.0000000001
 
-
+table_data = []
 # +
-def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
+def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size, batch):
     loss = 0
     inputs_id = inputs_id.to(device_0)
     
@@ -244,10 +244,24 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
     #     np.append(first_input[j], [sep], axis=-1)
     inter_response = []
     first_input = tokenizer.batch_decode(first_input, skip_special_tokens=True)
+    # print(decode_temp_sentence)
+    # print(first_input)
 
     if 'gpt' in args.inter:
         inter_response.extend(make_response(decode_temp_sentence, first_input, args))
 
+    if batch % 50 == 0:
+        # print(f'batch: {batch}')
+        # inpu_t = [tokenizer.decode(x[n_tokens:]) for x in inputs_id]
+        my_table = wandb.Table(columns=['batch','input', 'chatbot', 'inter']) 
+        for i in range(inputs_id.shape[0]):
+            table_data.append([batch, first_input[i] , decode_temp_sentence[i], inter_response[i]])
+        for t in table_data:
+            my_table.add_data(*t)
+        # print('************** save to table **********')
+        wandb.log({'generation table': my_table}, commit=False)
+
+    # print(inter_response)
     # if 'google' in args.inter:
     #     #k = []
     #     for j in range(inputs_id.shape[0]):
@@ -309,6 +323,7 @@ def train(model_train, inputs_id, mask, tokenizer, ll, args, batch_size):
         
     # test_reward = np.mean(test_reward)
 
+    # raise
     return loss, sum(temp_score)
 
 
@@ -335,7 +350,17 @@ def main():
 
     os.makedirs(os.path.join('models', args.save), exist_ok=True)
     
-    wandb.init(project=args.save, entity="chatbot")
+    wandb.init(
+      # Set the project where this run will be logged
+      project="guiding_davinci", 
+      # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
+      name=f"{args.save}"
+      ,entity="chatbot_ntu"
+      )
+    # Track hyperparameters and run metadata
+    # wandb.config.update(args)
+    # wandb.config.update({"lr": 5e-4, 'epoch':1, "seed":100, 'batch_size':4, 
+    #     'init_from_vocab': True if args.initial == 'vocab' else False})
     wandb.login()
     wandb.config.update(args)
     
@@ -378,7 +403,7 @@ def main():
 
     
     print("processing dataset...")
-    dataset = ChineseDataset(args.data_path, tokenizer, maxline=40)
+    dataset = ChineseDataset(args.data_path, tokenizer, maxline=4000)
     train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
 #     val_dataset = ChineseDataset(args.val_data_path, tokenizer)
 #     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
@@ -395,7 +420,7 @@ def main():
             
             loss = 0
             for _ in range(args.sample_per_batch):
-                batch_loss, score = train(model_train, first_input, first_mask, tokenizer, ll, args, batch_size)
+                batch_loss, score = train(model_train, first_input, first_mask, tokenizer, ll, args, batch_size, batch)
                 loss += batch_loss
 
                 # test_score += avg_prob

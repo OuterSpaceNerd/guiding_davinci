@@ -33,7 +33,7 @@ class agent(nn.Module):
             self.word_task()
 
         elif self.type == "length":
-            pass
+            self.train_task = ['length']
 
     
     def emotion_task(self):
@@ -69,7 +69,7 @@ class agent(nn.Module):
             with torch.no_grad():
                 _, past, _, mask = self.prompt.prepare_input(task, inputs_id, mask, model)
                 # Do the same thing as above, but with fixed model (to calculate coherence)
-            prev_input = torch.LongTensor([self.prompt.tokenizer.sep_token_id for _ in range(inputs_id.shape[0])]).to(self.device)
+            prev_input = torch.LongTensor([[self.prompt.tokenizer.sep_token_id] for _ in range(inputs_id.shape[0])]).to(self.device)
             # The start of auto-regressive decoding of speaker 1 (chatbot)
             batch_size = inputs_id.shape[0]
             append = torch.tensor([[1] for i in range(batch_size)]).to(self.device)
@@ -93,7 +93,7 @@ class agent(nn.Module):
                     old_mask.append(mask.detach().cpu())
                     old_states.append(prev_input.detach().cpu())
                     temp_past = past
-                    logits, past = model(prev_input, past=temp_past, attention_mask=mask, position_ids=position_ids)
+                    logits, past = model(prev_input, past_key_values=temp_past, attention_mask=mask, position_ids=position_ids, return_dict=False)
             
                     prev_input = prev_input.to(self.device)   
                     mask = torch.cat((mask, append), 1)
@@ -116,12 +116,16 @@ class agent(nn.Module):
             ##########################################################################################
             eos_index = [len(temp_sen[0]) for j in range(len(temp_sen))]
             dialoggpt_end_index = 102
+            # print(temp_sen)
+            # print(self.prompt.tokenizer.batch_decode(temp_sen))
+            # raise
             for j in range(len(temp_sen)):
                 if dialoggpt_end_index in temp_sen[j]:
                     eos_index[j] = temp_sen[j].index(dialoggpt_end_index)
                     temp_sen[j] = temp_sen[j][:eos_index[j]]
 
-            model_response = [self.prompt.tokenizer.decode(x).split('<|endoftext|>')[0] for x in temp_sen]
+            # model_response = [self.prompt.tokenizer.decode(x).split('<|endoftext|>')[0] for x in temp_sen]
+            model_response = self.prompt.tokenizer.batch_decode(temp_sen, skip_special_token=True)
             first_input = list(inputs_id.cpu().detach().numpy())
             model_response_input_ids = [np.array(x) for x in temp_sen]
 
@@ -130,7 +134,8 @@ class agent(nn.Module):
                 first_input[j] = first_input[j][-l:]
 
             bot_response = []
-            first_input_string = [self.prompt.tokenizer.decode(x) for x in first_input]
+            # first_input_string = [self.prompt.tokenizer.decode(x) for x in first_input]
+            first_input_string = self.prompt.tokenizer.batch_decode(first_input, skip_special_token=True)
         
         else:
             old_states = []
@@ -150,7 +155,12 @@ class agent(nn.Module):
             first_input_string = [self.prompt.tokenizer.decode(x) for x in first_input]
             model_response = [model] * batch_size
         
+        # print(first_input)
+        for i in range(len(first_input_string)):
+          first_input_string[i] = first_input_string[i].replace("[CLS]", "").replace(" ", "").strip()
+          model_response[i] = model_response[i].replace(" ", "").strip()
         bot_response.extend(self.bot.make_response(first_input_string, model_response))
+        
         conversation = []
         print_conv = []
 
@@ -159,15 +169,19 @@ class agent(nn.Module):
             templit = first_input_string[j]
             conversation.append(bot_response[j][0])
 
+
             if not isinstance(model, str):
-                print_conv.append([templit, self.prompt.tokenizer.decode(self.prompt.tokenizer.encode(model_response[j],add_prefix_space=True)), bot_response[j][0]])
+                print_conv.append([templit, self.prompt.tokenizer.decode(self.prompt.tokenizer.encode(model_response[j])), bot_response[j][0]])
             else:
                 print_conv.append([templit, model, bot_response[j][0]])
-
+        # print(conversation)
+        # raise
         if self.type == "emotion":
             predict_list = self.emotion_reward(conversation)
         elif self.type == "word":
             predict_list = self.word_reward(task, conversation)
+        elif self.type == 'length':
+            predict_list = self.length_reward(conversation)
         else:
             raise
 
@@ -192,6 +206,10 @@ class agent(nn.Module):
                 if isinstance(task, str):
                     score += s
                     tempscore.append(s)
+        elif self.type == "length":
+            for s in predict_list:
+              score += s
+              tempscore.append(s)
 
         batchwise_pt_len_rewards= []
         reward_collect = []
@@ -296,8 +314,8 @@ class agent(nn.Module):
             position_ids.masked_fill_(flatten_mask[num] == 0, 1)
             position_ids = position_ids[:, -1].unsqueeze(-1).to(self.device)
             temp_past = past
-            logits, past = self.prompt.model(flatten_states[num], past=temp_past, attention_mask=flatten_mask[num], position_ids=position_ids)
-            hidden_states = self.prompt.model.transformer(flatten_states[num],past=temp_past, attention_mask=flatten_mask[num], position_ids=position_ids)[0]
+            logits, past = self.prompt.model(flatten_states[num], past_key_values=temp_past, attention_mask=flatten_mask[num], position_ids=position_ids, return_dict=False)
+            hidden_states = self.prompt.model.transformer(flatten_states[num],past_key_values=temp_past, attention_mask=flatten_mask[num], position_ids=position_ids, return_dict=False)[0]
             hidden = self.prompt.state_network(hidden_states)
             prediction_list.append(hidden)
             logits_list.append(logits)
@@ -371,6 +389,14 @@ class agent(nn.Module):
 
         avg = np.sum(score)
         return score
+
+    def length_reward(self, sentences):
+      score = np.array([0 for _ in range (len(sentences))])
+      for j in range(len(score)):
+        score[j] = len(sentences[j].replace(" ", "").replace("[UNK]", ""))
+      return score
+
+
     def log_wandb(self, flatten_dicts, total_loss, total_mse, total_pg, total_entropy, batch):
         meta_total = len(flatten_dicts)
         training_score = 0

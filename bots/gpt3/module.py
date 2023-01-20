@@ -10,6 +10,11 @@ class bot(nn.Module):
         self.bot = GPT3_api or Blenderbot or DialogGPT
         """
         openai.api_key =  config.api
+        if config.gpt3 == 'ada':
+          self.engine = 'text-ada-001'
+        elif config.gpt3 == 'davinci':
+          self.engine = 'text-davinci-003'
+        self.interlocutor = config.interlocutor
 
     def make_response(self, prefix_sentences, prompts):
         
@@ -18,36 +23,53 @@ class bot(nn.Module):
         
         #openai.api_key =  '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'
         with torch.no_grad():
+          sentences = []
+          # output_sentences = [tokenizer.encode(x, add_prefix_space=True) for x in output_sentences_string]
+          # prompt = [tokenizer.encode(x, add_prefix_space=True) for x in first_input_string]
+          for i in range(len(prompts)):
+              
+              #total_string  = "There is office in the following response:" + output_sentences_string[i]
+              # total_string  = "Make the following response full of office:" + output_sentences_string[i]
+              # total_string = prompts[i] + prefix_sentences[i]
+              # sentences.append(f"{total_string}\n\n")
+              sentences.append(f"{prompts[i]}\n\nHuman: {prefix_sentences[i]}\nAI:")
+          reply_string = []
+          print(sentences)
+
+          response = openai.Completion.create(
+                  engine=self.engine,
+                  prompt=sentences,
+                  temperature=0.9,
+                  max_tokens=150,
+                  top_p=1,
+                  frequency_penalty=0,
+                  presence_penalty=0.6,
+                  stop=[" Human:", " AI:"]
+                  )
+          for i in range(len(sentences)):
+              reply_string.append(response['choices'][i]['text'])
+          
+          for i in range(len(reply_string)):
+              reply_string[i] = [reply_string[i].strip()]
+          
+          if self.interlocutor:
             sentences = []
-            # output_sentences = [tokenizer.encode(x, add_prefix_space=True) for x in output_sentences_string]
-            # prompt = [tokenizer.encode(x, add_prefix_space=True) for x in first_input_string]
             for i in range(len(prompts)):
-                
-                #total_string  = "There is office in the following response:" + output_sentences_string[i]
-               # total_string  = "Make the following response full of office:" + output_sentences_string[i]
-                total_string = prompts[i] + prefix_sentences[i]
-                sentences.append(f"Context: {total_string}\nResponse:")
+                sentences.append(f"Human: {prefix_sentences[i]}\nAI: {reply_string[0][i]}")
             reply_string = []
 
-            # start_sequence = "\nPerson 1:"
-            # restart_sequence = "\nPerson 2: "
-
             response = openai.Completion.create(
-                engine="text-davinci-003",
-                prompt=sentences,
-                temperature=0,
-                max_tokens=40,
-                top_p=1,
-                frequency_penalty=0,
-                presence_penalty=0.6,
-                stop=["\n"]
-                )
+                    engine=self.engine,
+                    prompt=sentences,
+                    temperature=0.9,
+                    max_tokens=150,
+                    top_p=1,
+                    frequency_penalty=0,
+                    presence_penalty=0.6,
+                    stop=[" Human:", " AI:"]
+                    )
             for i in range(len(sentences)):
-
                 reply_string.append(response['choices'][i]['text'])
-        # print(reply_string)
-        # print("response=",reply_string)
-            # reply_string = tokenizer.batch_decode(reply_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
 
             for i in range(len(reply_string)):
                 reply_string[i] = [reply_string[i].strip()]

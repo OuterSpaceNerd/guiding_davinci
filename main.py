@@ -1,4 +1,5 @@
 
+from keras.utils.generic_utils import default
 import numpy as np
 import torch
 import random
@@ -53,13 +54,19 @@ def main():
     wandb.config.update(args)
 
     agent = importlib.import_module('.module', f"agents.{args.agent}").agent
-    prompt = importlib.import_module(".module",f"prompts.{args.prompt}").prompt
+    if args.independence == True:
+      prompt = importlib.import_module(".module",f"prompts.{args.prompt}").independent_prompt
+    else:
+      prompt = importlib.import_module(".module",f"prompts.{args.prompt}").prompt
     bot = importlib.import_module(".module",f"bots.{args.bot}").bot
     dataset =importlib.import_module(".module",f"datasets.{args.dataset}").dataset
     
     Bot = bot(args)
     Prompt = prompt(args)
-    Dataset = dataset(args.path, Prompt.tokenizer)
+    if args.maxline != None:
+      Dataset = dataset(args.path, Prompt.tokenizer, args.maxline)
+    else:
+      Dataset = dataset(args.path, Prompt.tokenizer)
     Agent = agent(args, Prompt, Bot)
     dataloader = DataLoader(Dataset, batch_size=args.bz, shuffle=True, num_workers=0)
     pbar = tqdm(dataloader,position=0)
@@ -213,7 +220,7 @@ def set_arguments(parser):
     parser.add_argument("--api", type=str, default=None, help="If use want to use GPT3 as bot, you should enter your API")
     parser.add_argument("--prompt", type=str, default="DialogGPT")
     parser.add_argument("--dataset", type=str, default="example") # for finetune task
-    parser.add_argument("--path", type=str, default="./data/dd_train.txt", help="path for dataset")
+    parser.add_argument("--path", type=str, default="./data/train_raw.tsv", help="path for dataset")
     parser.add_argument("--mode", type=str, default="test", help="The current option is [ 'pretrain', 'finetune', 'test' ]")
     parser.add_argument("--type", type=str, default=None, help="The current option is [ 'word', 'emotion' ]")
     parser.add_argument("--exp_name", type=str, default="")
@@ -239,6 +246,10 @@ def set_arguments(parser):
     parser.add_argument("--tags", type=str, default=None)
     parser.add_argument('--init_step', type=str, default="")
     parser.add_argument('--extra_label', type=str, default='train_word_list.txt')
+    parser.add_argument('--maxline', type=int, default=None)
+    parser.add_argument('--independence', action='store_true')
+    parser.add_argument('--gpt3', type=str, default='ada')
+    parser.add_argument('--interlocutor', action='store_true')
 
     args = parser.parse_args()
 

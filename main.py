@@ -24,11 +24,16 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 
 def main():
     
+
+    
     # replace yaml default argument to argparser arg. 
     parser = ArgumentParser()
     args  = set_arguments(parser)
     opt = yaml.load(open(f"configs/{args.config}/config.yaml"), Loader=yaml.FullLoader)
     opt.update(vars(args))
+
+    dest = f"results/{args.save_path}/"
+    os.makedirs(dest, exist_ok=True)
 
     fix_seed(args)
     args = argparse.Namespace(**opt)
@@ -50,7 +55,7 @@ def main():
         print("which mode do you want to use: pretrain / finetune / test")
         raise
     
-    wandb.init(project='emnlp', tags=tags, name=args.exp_name, entity="naacl_maml_prompt")
+    wandb.init(project='chatbot', tags=tags, name=args.exp_name, entity="chatbot_ntu")
     wandb.config.update(args)
 
     agent = importlib.import_module('.module', f"agents.{args.agent}").agent
@@ -72,6 +77,7 @@ def main():
     pbar = tqdm(dataloader,position=0)
     batch = 0
 
+    average_length = 0
     for inputs_id, mask, ll in pbar:
         total_loss = 0
         total_grad = 0
@@ -167,6 +173,10 @@ def main():
                 total_scores = []
                 for flatten_dict in sample_dicts:
                     total_scores.append(flatten_dict)
+
+                for score in total_scores:
+                  average_length += score['score']/args.bz/len(meta_total)
+                # average_length = average_length/args.bz/len(meta_total)
                 
                 Agent.log_wandb(total_scores, 0, 0, 0, 0, batch)
 
@@ -211,6 +221,7 @@ def main():
 
         if batch > args.end_batch:
             break
+    print(average_length/args.end_batch)
 
 def set_arguments(parser):
     parser.add_argument("--task", type=str, default="none") # for finetune task

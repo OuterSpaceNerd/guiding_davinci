@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 from torch.distributions.categorical import Categorical
-from goemotion.model import BertForMultiLabelClassification
-from goemotion.multilabel_pipeline import EmotionP
+# from goemotion.model import BertForMultiLabelClassification
+# from goemotion.multilabel_pipeline import EmotionP
 from transformers import BertTokenizer
 import torch.nn.functional as F
 import numpy as np
@@ -93,7 +93,7 @@ class agent(nn.Module):
                     old_mask.append(mask.detach().cpu())
                     old_states.append(prev_input.detach().cpu())
                     temp_past = past
-                    logits, past = model(prev_input, past=temp_past, attention_mask=mask, position_ids=position_ids)
+                    logits, past = model(prev_input, past_key_values=temp_past, attention_mask=mask, position_ids=position_ids, return_dict=False)
             
                     prev_input = prev_input.to(self.device)   
                     mask = torch.cat((mask, append), 1)
@@ -114,6 +114,8 @@ class agent(nn.Module):
                         temp_sen[j].append(prev_input[origin_index].item())
                 
             ##########################################################################################
+            # print(temp_sen)
+            # raise
             eos_index = [len(temp_sen[0]) for j in range(len(temp_sen))]
             dialoggpt_end_index = 50256
             for j in range(len(temp_sen)):
@@ -122,6 +124,8 @@ class agent(nn.Module):
                     temp_sen[j] = temp_sen[j][:eos_index[j]]
 
             model_response = [self.prompt.tokenizer.decode(x).split('<|endoftext|>')[0] for x in temp_sen]
+            # print(model_response)
+            # raise
             first_input = list(inputs_id.cpu().detach().numpy())
             model_response_input_ids = [np.array(x) for x in temp_sen]
 
@@ -151,6 +155,8 @@ class agent(nn.Module):
             model_response = [model] * batch_size
         
         bot_response.extend(self.bot.make_response(first_input_string, model_response))
+        # print(bot_response)
+        # raise
         conversation = []
         print_conv = []
 
@@ -168,6 +174,8 @@ class agent(nn.Module):
             predict_list = self.emotion_reward(conversation)
         elif self.type == "word":
             predict_list = self.word_reward(task, conversation)
+        elif self.type == 'length':
+            predict_list = self.length_reward(conversation)
         else:
             raise
 
@@ -192,6 +200,11 @@ class agent(nn.Module):
                 if isinstance(task, str):
                     score += s
                     tempscore.append(s)
+        
+        elif self.type == 'length':
+            for s in predict_list:
+              score += s
+              tempscore.append(s)
 
         batchwise_pt_len_rewards= []
         reward_collect = []
@@ -296,8 +309,8 @@ class agent(nn.Module):
             position_ids.masked_fill_(flatten_mask[num] == 0, 1)
             position_ids = position_ids[:, -1].unsqueeze(-1).to(self.device)
             temp_past = past
-            logits, past = self.prompt.model(flatten_states[num], past=temp_past, attention_mask=flatten_mask[num], position_ids=position_ids)
-            hidden_states = self.prompt.model.transformer(flatten_states[num],past=temp_past, attention_mask=flatten_mask[num], position_ids=position_ids)[0]
+            logits, past = self.prompt.model(flatten_states[num], past_key_values=temp_past, attention_mask=flatten_mask[num], position_ids=position_ids, return_dict=False)
+            hidden_states = self.prompt.model.transformer(flatten_states[num],past_key_values=temp_past, attention_mask=flatten_mask[num], position_ids=position_ids, return_dict=False)[0]
             hidden = self.prompt.state_network(hidden_states)
             prediction_list.append(hidden)
             logits_list.append(logits)
@@ -343,9 +356,17 @@ class agent(nn.Module):
 
         flatten_dict["contrastive"] = contrastive_list
         flatten_dict["length"] = length_list
-
-        return loss, flatten_dict, mse.item(), pg_loss.item(), entropy
-
+        try:
+          return loss, flatten_dict, mse.item(), pg_loss.item(), entropy
+        except:
+          print(flatten_dict)
+          print(ratios)
+          print(advantages)
+          print(surr1)
+          print(surr2)
+          print(index_pg)
+          print(pg_loss)
+          raise
 
     def emotion_reward(self, sentences):
 
@@ -371,6 +392,15 @@ class agent(nn.Module):
 
         avg = np.sum(score)
         return score
+
+    def length_reward(self, sentences):
+        score = np.array([0 for wee in range(len(sentences))])
+        for j in range(len(sentences)):
+          score[j] += len(sentences[j].split())
+        return score
+          
+
+
     def log_wandb(self, flatten_dicts, total_loss, total_mse, total_pg, total_entropy, batch):
         meta_total = len(flatten_dicts)
         training_score = 0

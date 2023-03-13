@@ -2,4 +2,6 @@ wandb
 transformers
 tensorboardX
 openai
-torch torchvision torchaudio
+torch
+torchvision
+torchaudio

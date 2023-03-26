@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import openai
+import time
 # from googletrans import Translator
 
 class bot(nn.Module):
@@ -47,12 +48,17 @@ class bot(nn.Module):
               message.append({"role": "system", "content": prompts[i]})
               message.append({"role": "user", "content": prefix_sentences[i]})
               # messages.append(message)
-              response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=message,
-                temperature=0.0
-              )
-              reply_string.append(response['choices'][0]['message']['content'])
+              while(True):
+                try:
+                  response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=message,
+                    temperature=0.0
+                  )
+                  reply_string.append(response['choices'][0]['message']['content'])
+                  break
+                except:
+                  time.sleep(60)
             for i in range(len(reply_string)):
               reply_string[i] = [reply_string[i].strip()]
             log['AI'] = reply_string

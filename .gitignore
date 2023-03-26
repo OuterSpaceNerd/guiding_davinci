@@ -1,2 +1,4 @@
-data/*
+data/test-v4-shuffle.tsv
+data/train-v4.tsv
+data/valid-v4.tsv
 chinese_data.zip

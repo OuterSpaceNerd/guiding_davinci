@@ -7,9 +7,12 @@ from transformers import BertTokenizer
 import torch.nn.functional as F
 import numpy as np
 import re
+from copy import deepcopy
 import wandb
+
+
 class agent(nn.Module):
-    def __init__(self, config, prompt, bot):
+    def __init__(self, config, prompt, bot, ptx_dataloader):
         super().__init__()
 
         """
@@ -20,9 +23,12 @@ class agent(nn.Module):
         self.prompt = prompt
         self.bot = bot
         self.type = config.type
+        self.temperatre = config.temperature
+        self.pretrain_dataloader = ptx_dataloader
 
         self.word_dict = None
         self.train_task = None
+        self.table = wandb.Table(columns=['step', 'prompt', 'sentence1', 'response'])
 
         if self.type == "emotion":
             self.emotion_task()
@@ -34,6 +40,7 @@ class agent(nn.Module):
 
         elif self.type == "length":
             pass
+        
 
     
     def emotion_task(self):
@@ -79,7 +86,6 @@ class agent(nn.Module):
             old_logprobs = []
             old_mask = []
             old_actions = []
-            temperature = 1
             mask = torch.cat((mask, append), 1)
             position_ids = mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(mask == 0, 1)
@@ -101,7 +107,7 @@ class agent(nn.Module):
                     position_ids.masked_fill_(mask == 0, 1)
                     position_ids = position_ids[:, -1].unsqueeze(-1).to(self.device)
                     logits = logits.squeeze(0).squeeze(1)
-                    soft_logits = logits / temperature
+                    soft_logits = logits / self.temperatre
                     
                     probs = torch.softmax(soft_logits,dim=-1)
                     dist = Categorical(probs)
@@ -154,7 +160,9 @@ class agent(nn.Module):
             first_input_string = [self.prompt.tokenizer.decode(x) for x in first_input]
             model_response = [model] * batch_size
         
+        ## given first_input_string, and model_response as prompt, the response is bot_response
         bot_response.extend(self.bot.make_response(first_input_string, model_response))
+    
         # print(bot_response)
         # raise
         conversation = []
@@ -354,6 +362,23 @@ class agent(nn.Module):
         mse /= (outter_count + 1e-9)
         loss = pg_loss + mse
 
+        if self.args.lm_lr != 0 :
+            inputs_id, mask, ll = next(iter(self.pretrain_dataloader))
+            inputs_id = inputs_id.to(self.device)
+            mask = mask.to(self.device)
+
+            labels_id = deepcopy(inputs_id)
+            labels_id.masked_fill_(mask == 0, -100)
+            outputs = self.prompt.model(inputs_id, attention_mask=mask, labels=labels_id)
+            lm_loss = outputs['loss']
+            loss = lm_loss * self.args.lm_lr  + (1- self.args.lm_lr) * loss
+        
+        if self.args.lm_lr != 0:
+            flatten_dict['lm_loss'] = lm_loss.item()
+        else :
+            flatten_dict['lm_loss'] = 0
+            
+
         flatten_dict["contrastive"] = contrastive_list
         flatten_dict["length"] = length_list
         try:
@@ -406,14 +431,33 @@ class agent(nn.Module):
         training_score = 0
         coherence_score = 0
         control_score = 0
+        lm_loss = 0
+
         for score in flatten_dicts:
             training_score += score['score']
+            lm_loss += score['lm_loss']
 
         wandb.log({'outerloss': total_loss / meta_total , \
                     'outermse': total_mse / meta_total, \
                     'outerpg': total_pg / meta_total, \
                     'outerentropy': total_entropy / meta_total, \
-                    'outerscore': training_score / self.args.bz / meta_total}, \
+                    'outerscore': training_score / self.args.bz / meta_total, \
+                    'lm_loss': lm_loss / meta_total}, \
                  #   'controllable_score':control_score / self.args.bz / meta_total, \
                  #   'coherence_score': coherence_score / self.args.bz / meta_total} \ 
                     step=batch)
+
+        if batch % 10 == 0 :
+            for flatten_dict in flatten_dicts:
+                bot_response=flatten_dict['conversation']
+                prompt=flatten_dict['model_response']
+                input_sentence=flatten_dict['input_string']
+
+                for i in range(len(bot_response)):
+                    self.table.add_data(batch, prompt[i], input_sentence[i], bot_response[i])
+                
+            
+            new_table = wandb.Table(
+                columns=self.table.columns, data=self.table.data
+            )
+            wandb.log({"conversation": new_table})

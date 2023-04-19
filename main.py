@@ -44,7 +44,7 @@ def main():
         tags.append(args.tags)
     
     if (args.type is None):
-        print("which type of task do you want to use: word / emotion")
+        print("which type of task do you want to use: word / emotion / length")
         raise
 
     if (args.bot == "gpt3" and args.api == None):
@@ -55,7 +55,7 @@ def main():
         print("which mode do you want to use: pretrain / finetune / test")
         raise
     
-    wandb.init(project='chatbot', tags=tags, name=args.exp_name, entity="chatbot_ntu")
+    wandb.init(mode = args.wandb, project='chatbot', tags=tags, name=args.exp_name, entity="chatbot_ntu")
     wandb.config.update(args)
 
     agent = importlib.import_module('.module', f"agents.{args.agent}").agent
@@ -72,8 +72,10 @@ def main():
       Dataset = dataset(args.path, Prompt.tokenizer, args.maxline)
     else:
       Dataset = dataset(args.path, Prompt.tokenizer)
-    Agent = agent(args, Prompt, Bot)
+      
     dataloader = DataLoader(Dataset, batch_size=args.bz, shuffle=True, num_workers=0)
+    Agent = agent(args, Prompt, Bot, dataloader)
+    
     pbar = tqdm(dataloader,position=0)
     batch = 0
 
@@ -224,6 +226,7 @@ def main():
     print(average_length/args.end_batch)
 
 def set_arguments(parser):
+    parser.add_argument("--wandb", type=str, default='enabled')
     parser.add_argument("--task", type=str, default="none") # for finetune task
     parser.add_argument("--agent", type=str, default="example", help="which setting use want to use")
     parser.add_argument("--config", type=str, default="example")
@@ -261,6 +264,8 @@ def set_arguments(parser):
     parser.add_argument('--independence', action='store_true')
     parser.add_argument('--gpt3', type=str, default='ada')
     parser.add_argument('--interlocutor', action='store_true')
+    parser.add_argument('--temperature', type=float, default=1.0)
+    parser.add_argument('--lm_lr', type=float, default=0.5)
 
     args = parser.parse_args()
 

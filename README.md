@@ -3,6 +3,8 @@ This code is modified from https://github.com/pohanchi/blackboxbot?fbclid=IwAR1R
 
 
 
-## update language model loss
+## Update language model loss
 
-<pre><code> ./run.sh
+### Train
+<pre><code> python3 main.py \
+--type length 
